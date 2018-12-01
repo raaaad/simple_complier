@@ -2,7 +2,8 @@
 #include "stdio.h"
 #include "string.h"
 #include "stdlib.h"
-#include "x0yacc.tab.h"
+#include "sys/malloc.h"
+#include "y.tab.h"
 
 int line=1;
 void yyerror(char *);
@@ -26,7 +27,6 @@ int yywrap(void);
 }
 [0-9]+	{yylval.number=atoi(yytext); return NUM;}
 "="		{return ASSIGN;}
-"%"		{return MOD;}
 "<"		{return LSS;}
 ">"		{return GTR;}
 "<="	{return LEQ;}
@@ -44,7 +44,6 @@ int yywrap(void);
 "{"		{return LBRACE;}
 "}"		{return RBRACE;}
 ";"		{return	SEMICOLON;}
-","		{return COMMA;}
 .		{yyerror("Unknown character!");}
 
 %%

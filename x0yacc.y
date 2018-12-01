@@ -3,10 +3,9 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
-#include <malloc.h>
+#include <sys/malloc.h>
 #include <string.h>
 
-//not used
 #define bool int
 #define true 1
 #define false 0
@@ -188,10 +187,20 @@ statement: if_stat
 		
 /* 一条或多条语句 */
 statement_list: statement_list statement
+				{
+					$$ = $1 + $2;
+				}
+			|	
+				{
+					$$ = 0;
+				}
           	;
 
 /* 复合语句 */
 compound_stat: LBRACE statement_list RBRACE
+			{
+				$$ = $2;
+			}
           	;
 
 /* 条件语句 */
@@ -224,22 +233,22 @@ while_stat: WHILESYM LBRACE get_code_addr expression RBRACE get_code_addr
 		;
 
 /* 写语句 */
-write_stat: WRITESYM expression
+write_stat: WRITESYM expression SEMICOLON
 			{
 				gen(opr, 0, 14);
 				gen(opr, 0, 15);
+				$$ = $2;
 			}
-			SEMICOLON
           	;
 
 /* 读语句 */
-read_stat: READSYM var
-		{
+read_stat: READSYM var SEMICOLON
+			{
 				gen(opr, 0, 16);
 				gen(sto, lev - table[$2].level, table[$2].addr);
-		}
-		SEMICOLON
-        ;
+				$$ = $2;
+			}
+        	;
 
 
 /* 表达式 */
@@ -257,7 +266,13 @@ expression: var ASSIGN expression
 
 /* 分号或加分号的表达式 */
 expression_stat: expression SEMICOLON
+			{
+				$$ = $1;
+			}
 		|	SEMICOLON
+			{
+				$$ = 0;
+			}
 		;
 
 /* 简单表达式 */
@@ -297,6 +312,7 @@ additive_expr: additive_expr ADD term
 			{
 				gen(opr, 0, 3);
 			}
+		|	term
 			;
 /* 项 */
 term: term MUL factor
@@ -307,6 +323,7 @@ term: term MUL factor
 		{
 			gen(opr, 0, 5);
 		}
+	|	factor
           ;
 
 /* 因子 */
@@ -322,6 +339,9 @@ factor: var
 				gen(lit, 0, $1);
 			}
         |	LPAREN expression RPAREN
+			{
+				$$ = 0;
+			}
 		;
 
 /* 类型 */
