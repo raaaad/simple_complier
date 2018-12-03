@@ -18,9 +18,9 @@
 
 // 符号表中的类型
 enum object {
-    int,
+    varible_int,
+	varible_char,
     int_array,
-	char,
 	char_array,
 
 };
@@ -37,7 +37,7 @@ struct table_struct
 };
 
 // 符号表声明
-struct tablestruct table[symtable_max];
+struct table_struct table[symtable_max];
 
 // 虚拟机代码指令
 enum fct {
@@ -70,7 +70,7 @@ int size;		//如果是数组的话，存数组大小
 int err_num;	//记录出错数
 extern int line;//声明在x0lex.l中
 
-char[id_max] input;	//测试文件名
+char input[id_max];	//测试文件名
 FILE* fin;			//测试文件
 
 void enter(enum object k);
@@ -130,7 +130,7 @@ program: MAINSYM
 		{
 			code[$<number>2].a = p_code;	//把前面生成的跳转语句的跳转位置改成当前位置
 			table[$<number>4].addr = p_code;		//记录当前过程代码地址
-			table[$<number>4].size = $<number>4 + 3;	//记录当前过程分配数据大小
+			table[$<number>4].arr_size = $<number>4 + 3;	//记录当前过程分配数据大小
 			gen(ini, 0, $<number>4 + 3);	//生成代码
 			print_table();
 		}
@@ -146,9 +146,9 @@ declaration_stat: type ID SEMICOLON
 					//加入符号表
 					strcpy(id, $2); //暂存标识符name
 					if ($<number>1 == 1)
-						enter(int);
+						enter(varible_int);
 					if ($<number>1 == 2)
-						enter(char);
+						enter(varible_char);
               		$<number>$ = 1;
 				}
 			|	type ID LSQBRK NUM RSQBRK SEMICOLON
@@ -400,21 +400,21 @@ void enter(enum object k)
 	table[p_table].kind = k;		//kind
 	switch (k)
 	{
-		case int:	
+		case varible_int:	
 			table[p_table].level = lev;
 			table[p_table].val = num;
 			break;
-		case char:
+		case varible_char:
 			table[p_table].level = lev;
 			table[p_table].val = num;
 			break;
 		case int_array:
 			table[p_table].level = lev;
-			table[p_table].size = size;
+			table[p_table].arr_size = size;
 			break;
 		case char_array:
 			table[p_table].level = lev;
-			table[p_table].size = size;
+			table[p_table].arr_size = size;
 
 	}
 }
@@ -470,13 +470,13 @@ void print_table()
 	{
 		switch (table[i].kind)
 		{
-			case int:
+			case varible_int:
 				printf("%3d  int   %s  ", i, table[i].name);
 				printf("val=%d\n", table[i].val);
 				break;
-			case char:
+			case varible_char:
 				printf("%3d  char  %s  ", i, table[i].name);
-				printf("addr=%d  size=%d\n", table[i].addr, table[i].size);
+				printf("addr=%d  size=%d\n", table[i].addr, table[i].arr_size);
 				break;
 		}
 	}
@@ -506,7 +506,7 @@ void print_code()
 	};
 	
 	//print
-	for (cur = 0; i < code_max; cur++)
+	for (cur = 0; cur < code_max; cur++)
 		printf("%d %s %d %d\n", cur, name[code[cur].f], code[cur].l, code[cur].a);
 	
 	printf("==================\n");
@@ -530,7 +530,7 @@ int base(int l, int* s, int b)
 // 解释程序
 void interpret()
 {
-	int s[stack_max]:		// 栈
+	int s[stack_max];		// 栈
 	int top = 0;			// 栈顶指针
 	int p = 0;				// 指令指针
 	int base_addr = 1;		// 指令基址
@@ -554,17 +554,17 @@ void interpret()
 				break;
 			case lod:	// 取相对地址为a的内存的值到栈顶
 				top++;
-				s[top] = s[base(i.l,s,b) + i.a];
+				s[top] = s[base(i.l,s,base_addr) + i.a];
 				break;
 			case sto:	// 栈顶的值存到相对地址为a处
-				s[base(i.l, s, b) + i.a] = s[top];
-				t--;	//存储后出栈
+				s[base(i.l, s, base_addr) + i.a] = s[top];
+				top--;	//存储后出栈
 				break;
 			case cal:	// 调用子过程 NOT USED
-				s[t + 1] = base(i.l, s, b);	/* 将父过程基地址入栈，即建立静态链 */
-				s[t + 2] = b;	/* 将本过程基地址入栈，即建立动态链 */
-				s[t + 3] = p;	/* 将当前指令指针入栈，即保存返回地址 */
-				b = t + 1;	/* 改变基地址指针值为新过程的基地址 */
+				s[top + 1] = base(i.l, s, base_addr);	/* 将父过程基地址入栈，即建立静态链 */
+				s[top + 2] = base_addr;	/* 将本过程基地址入栈，即建立动态链 */
+				s[top + 3] = p;	/* 将当前指令指针入栈，即保存返回地址 */
+				base_addr = top + 1;	/* 改变基地址指针值为新过程的基地址 */
 				p = i.a;	/* 跳转 */
 				break;
 			case ini:	// 在数据栈中为被调用的过程开辟a个单元的数据区

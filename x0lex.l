@@ -47,11 +47,11 @@ int yywrap(void);
 .		{yyerror("Unknown character!");}
 
 %%
-int main()
-{
-   yylex();
-   return 0;
-}
+// int main()
+// {
+//    yylex();
+//    return 0;
+// }
 
 void redirectInput(FILE *input)
 {

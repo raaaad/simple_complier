@@ -1,10 +1,8 @@
 .vscode/launch.json
 .vscode/c_cpp_properties.json
-map.pdf
-map.xml
+doc
 *.c
 *.h
 *.output
-*.txt
-*.x0
+
 
