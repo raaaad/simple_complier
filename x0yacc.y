@@ -18,16 +18,16 @@
  
 #define YYDEBUG  1
 
-// #define DEBUG 1
+#define DEBUG 1
 
 // int yydebug = YYDEBUG;
 
 // 符号表中的类型
 enum object {
-    varible_int,
-	varible_char,
-    int_array,
-	char_array,
+    var_int,
+	var_char,
+    var_int_array,
+	var_char_array,
 
 };
 
@@ -60,18 +60,25 @@ struct instruction
 	int a;        // num or 操作符代号
 };
 
+//data stack
+struct stack
+{
+	enum object tp;
+	int val;
+};
+
 // 存放虚拟机代码的数组
 struct instruction code[code_max]; 
 
 int p_table;	// 符号表当前指针,[0, symtable_max-1]
 int p_code;		// 虚拟机代码指针,[0, code_max-1]
 
-
 //全局变量，用于暂存
 char id[id_max];
 int num;
 int lev;		// 层次记录
 int size;		//如果是数组的话，存数组大小
+int dec_type;	//暂存声明标识符类型 1:int 2:char
 
 int err_num;	//记录出错数
 extern int line;//声明在x0lex.l中
@@ -84,35 +91,38 @@ int position(char *s);
 void set_addr(int n);
 void gen(enum fct x, int y, int z);
 
-void init();		//initial virtual machine
-void print_code();	//output code
-int base(int l, int* s, int b);//get base_address
-void interpret();	
-void print_table();	//output symbol table
-void print_data_stack(int top, int* s);
+void init();							//initial virtual machine
+int base(int l, struct stack* s, int b);//get base_address
+void interpret();						
 
-void print_error(int e);
+void print_code();								//output code
+void print_table();								//output symbol table
+void print_data_stack(int top, struct stack* s);//output data stack
 
 %}
 
 ////////////////////////////////////////////////////////
 //辅助定义部分
 %union{
-	char *ident;
-	int number;
+	char *ident;	//ID
+	int number;		//NUM
+	char single_char;//char
+
 }
 
 //终结符号
 %token MAINSYM INTSYM CHARSYM IFSYM ELSESYM WHILESYM WRITESYM READSYM
 %token ASSIGN LSS GTR LEQ GEQ EQL NEQ ADD SUB MUL DIV
-%token LPAREN RPAREN LSQBRK RSQBRK LBRACE RBRACE SEMICOLON
+%token LPAREN RPAREN LSQBRK RSQBRK LBRACE RBRACE SEMICOLON COMMA
 
 %token <ident> ID
 %token <number> NUM
+%token <single_char> CHAR
 
 //非终结符
 %type <number> type var expression program
 %type <number> declaration_list statement_list //in program
+%type <number> id_list arr_id_list arr_id//in declaration list
 %type <number> declaration_stat statement compound_stat if_stat while_stat write_stat read_stat expression_stat//statements
 %type <number> simple_expr additive_expr term factor //in expression
 %type <number> get_table_addr get_code_addr //作为动作
@@ -125,7 +135,6 @@ void print_error(int e);
 ////////////////////////////////////////////////////////
 //规则部分
 %%
-/* 程序 */
 program: MAINSYM 
 		{
 			table[p_table].addr = p_code;	/* 记录当前层代码的开始位置*/
@@ -148,35 +157,10 @@ program: MAINSYM
 		}
 		;
 
-/*  声明语句 */
-declaration_stat: type ID SEMICOLON
-				{
-					//加入符号表
-					strcpy(id, $2); //暂存标识符name
-					if ($<number>1 == 1)
-						enter(varible_int);
-					if ($<number>1 == 2)
-						enter(varible_char);
-              		$<number>$ = 1;
-				}
-			|	type ID LSQBRK NUM RSQBRK SEMICOLON
-				{
-					//加入符号表
-					strcpy(id, $2); //暂存标识符name
-					size = $4;
-              		if ($<number>1 == 1)
-						enter(int_array);
-					if ($<number>1 == 2)
-						enter(char_array);
-					$<number>$ = size;
-				}
-          	;
-
-/* 声明列表 */
 declaration_list: declaration_stat declaration_list 
 				{
-					$$ = $1 + $2;//声明个数
-					set_addr($$);//分配相对地址
+					$$ = $1 + $2;//total decl num
+					set_addr($$);
 				}
 			| 	
 				{
@@ -184,7 +168,59 @@ declaration_list: declaration_stat declaration_list
           		} 
 		  	;
 
-/*  语句 */
+declaration_stat: type id_list SEMICOLON
+				{
+					$$ = $2;
+				}
+			|	type arr_id_list SEMICOLON
+				{
+					$$ = $2;
+				}
+          	;
+
+id_list: ID
+			{
+				strcpy(id, $1); 
+				if (dec_type == 1)//type is int
+					enter(var_int);//join symbol table
+				if (dec_type == 2)//type is char
+					enter(var_char);
+				$<number>$ = 1;
+			}
+		| id_list COMMA ID
+			{
+				strcpy(id, $3); 
+				if (dec_type == 1)//type is int
+					enter(var_int);//join symbol table
+				if (dec_type == 2)//type is char
+					enter(var_char);
+				$<number>$ = 1 + $1;
+			}
+		;
+
+arr_id_list: arr_id
+				{
+					$<number>$ = $1;
+				}
+			| arr_id_list COMMA arr_id
+				{
+					$<number>$ = $1 + $3;
+				}
+			;
+
+arr_id: ID LSQBRK NUM RSQBRK
+		{
+			strcpy(id, $1);
+			size = $3;
+			if (dec_type == 1)
+				enter(var_int_array);
+			if (dec_type == 2)
+				enter(var_char_array);
+			$<number>$ = size;
+		}
+		;
+
+
 statement: if_stat
           	|	while_stat
           	| 	read_stat
@@ -229,7 +265,7 @@ if_stat: IFSYM LBRACE expression RBRACE get_code_addr
 		;
 
 /* 循环语句 */
-while_stat: WHILESYM LBRACE get_code_addr expression RBRACE get_code_addr
+while_stat: WHILESYM LPAREN get_code_addr expression RPAREN get_code_addr
 		{
 			gen(jpc, 0 , 0);
 		}
@@ -338,13 +374,17 @@ term: term MUL factor
 factor: var
 			{
 				if ($1 == 0)
-					yyerror("Symbol does not exist");
+					yyerror("Symbol does not exist!");
 				else
 					gen(lod, lev - table[$1].level, table[$1].addr);
 			}
         | 	NUM
 			{
-				gen(lit, 0, $1);
+				gen(lit, 1, $1);
+			}
+		|	CHAR
+			{
+				gen(lit,2, $1);
 			}
         |	LPAREN expression RPAREN
 			{
@@ -352,14 +392,13 @@ factor: var
 			}
 		;
 
-/* 类型 */
 type: INTSYM
 		{
-			$$ = 1;
+			dec_type = 1;
 		}
 	|	CHARSYM
 		{
-			$$ = 2;
+			dec_type = 2;
 		}
 	;
 
@@ -396,7 +435,7 @@ get_code_addr:	{
 int yyerror(char *s)
 {
 	err_num = err_num + 1;
-  	printf("Error: %s in line %d.\n", s, line);
+  	printf("\nError(%d): %s\n",line, s);
 	return 0;
 }
 
@@ -408,19 +447,19 @@ void enter(enum object k)
 	table[p_table].kind = k;		//kind
 	switch (k)
 	{
-		case varible_int:	
+		case var_int:	
 			table[p_table].level = lev;
 			table[p_table].val = num;
 			break;
-		case varible_char:
+		case var_char:
 			table[p_table].level = lev;
 			table[p_table].val = num;
 			break;
-		case int_array:
+		case var_int_array:
 			table[p_table].level = lev;
 			table[p_table].arr_size = size;
 			break;
-		case char_array:
+		case var_char_array:
 			table[p_table].level = lev;
 			table[p_table].arr_size = size;
 
@@ -485,18 +524,26 @@ void print_table()
 {
 	printf("===Symbol Table===\n");
 	int i;//符号表编号
-	printf("     kind   name  val  address  size\n");
+	printf("     kind       name  val/level  address  size\n");
 	for (i = 1; i <= p_table; i++)
 	{
 		switch (table[i].kind)
 		{
-			case varible_int:
-				printf("%3d  int   %3s  ", i, table[i].name);
-				printf("%4d  %5d  %5d\n", table[i].val, table[i].addr,table[i].arr_size);
+			case var_int:
+				printf("%3d  int  %8s", i, table[i].name);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr,table[i].arr_size);
 				break;
-			case varible_char:
-				printf("%3d  char  %3s  ", i, table[i].name);
-				printf("addr=%d  size=%d\n", table[i].addr, table[i].arr_size);
+			case var_char:
+				printf("%3d  char  %7s", i, table[i].name);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
+				break;
+			case var_int_array:
+				printf("%3d  array_int  %2s", i, table[i].name);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
+				break;
+			case var_char_array:
+				printf("%3d  array_char  %s", i, table[i].name);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
 				break;
 		}
 	}
@@ -522,26 +569,26 @@ void print_code()
 	printf("==================\n");
 }
 
-void print_data_stack(int top, int* s)
+void print_data_stack(int top, struct stack* s)
 {
 	//print data stack
 	int t = top;
 	printf("\n===Data Stack===\n");
 	for(; t >= 0; t--)
 	{
-		printf("%d | %d\n",t,s[t]);
+		printf("%d | %d\n",t,s[t].val);
 	}
 }
 
 // 通过过程基址求上l层过程的基址
-int base(int l, int* s, int b)
+int base(int l, struct stack* s, int b)
 {
 	int b1;
 	b1 = b;
 	//level>0 不在当前层
 	while (l > 0)
 	{
-		b1 = s[b1];
+		b1 = s[b1].val;
 		l--;	//更新层数
 	}
 	//level=0 直接输出b 即b1
@@ -551,7 +598,7 @@ int base(int l, int* s, int b)
 // 解释程序
 void interpret()
 {
-	int s[stack_max];		// 栈
+	struct stack s[stack_max];		// 栈
 	int top = 0;			// 栈顶指针
 	int p = 0;				// 指令指针
 	int base_addr = 1;		// 指令基址
@@ -560,10 +607,10 @@ void interpret()
 	printf("Execute x0...\n");
 
 	//主程序栈底初始化
-	s[0] = 0; // s[0]不用
-	s[1] = 0; // SL 主程序的三个联系单元均置为0
-	s[2] = 0; // DL
-	s[3] = 0; // RA
+	s[0].val = 0; // s[0]不用
+	s[1].val = 0; // SL 主程序的三个联系单元均置为0
+	s[2].val = 0; // DL
+	s[3].val = 0; // RA
 
 
 	do {
@@ -575,20 +622,34 @@ void interpret()
 		{
 			case lit:	// 将常量a的值放入栈顶
 				top++;			//栈顶指针指向空位
-				s[top] = i.a;	//存入数字
+				switch (i.l)
+				{
+					case 1://int
+						s[top].tp = var_int;
+						s[top].val = i.a;
+						break;
+					case 2://char
+						s[top].tp = var_char;
+						s[top].val = i.a;
+						break;
+					case 3://array int
+						break;
+					case 4://array char
+						break;
+				}
 				break;
 			case lod:	// 取相对地址为a的内存的值到栈顶
 				top++;
-				s[top] = s[base(i.l,s,base_addr) + i.a];
+				s[top].val = s[base(i.l,s,base_addr) + i.a].val;
 				break;
 			case sto:	// 栈顶的值存到相对地址为a处
-				s[base(i.l, s, base_addr) + i.a] = s[top];
+				s[base(i.l, s, base_addr) + i.a].val = s[top].val;
 				top--;	//存储后出栈
 				break;
 			case cal:	// 调用子过程 NOT USED
-				s[top + 1] = base(i.l, s, base_addr);	/* 将父过程基地址入栈，即建立静态链 */
-				s[top + 2] = base_addr;	/* 将本过程基地址入栈，即建立动态链 */
-				s[top + 3] = p;	/* 将当前指令指针入栈，即保存返回地址 */
+				s[top + 1].val = base(i.l, s, base_addr);	/* 将父过程基地址入栈，即建立静态链 */
+				s[top + 2].val = base_addr;	/* 将本过程基地址入栈，即建立动态链 */
+				s[top + 3].val = p;	/* 将当前指令指针入栈，即保存返回地址 */
 				base_addr = top + 1;	/* 改变基地址指针值为新过程的基地址 */
 				p = i.a;	/* 跳转 */
 				break;
@@ -599,7 +660,7 @@ void interpret()
 				p = i.a;
 				break;
 			case jpc:	// 条件跳转
-				if (s[top] == 0)//??
+				if (s[top].val == 0)//??
 					p = i.a;
 				top--;
 				break;
@@ -608,59 +669,80 @@ void interpret()
 				{
 					case 0:	// 函数调用结束后返回
 						top = base_addr - 1;
-						p = s[top + 3]; 
-						base_addr = s[top + 2];
+						p = s[top + 3].val; 
+						base_addr = s[top + 2].val;
 						break;
 					case 1: // 栈顶元素取反 NOT USED
-						s[top] = - s[top];
+						s[top].val = - s[top].val;
 						break;
 					case 2: // 加法 栈顶两数相加 值进栈
 						top--;
-						s[top] = s[top] + s[top+1];
+						s[top].val = s[top].val + s[top+1].val;
 						break;
 					case 3:	// 减法
 						top--;
-						s[top] = s[top] - s[top+1];						
+						s[top].val = s[top].val - s[top+1].val;
 						break;
 					case 4:	// 乘法
 						top--;
-						s[top] = s[top] * s[top+1];
+						s[top].val = s[top].val * s[top+1].val;
 						break;
 					case 5:	// 除法
 						top--;
-						s[top] = s[top] / s[top+1];
+						s[top].val = s[top].val / s[top+1].val;
 						break;
 					case 6: // 奇偶判断 NOT USED
-						s[top] = s[top] % 2;
+						s[top].val = s[top].val % 2;
 						break;
 					case 7: // NOT USED
 						break;
 					case 8:	// ==
 						top--;
-						s[top] = (s[top] == s[top + 1]);
+						s[top].val = (s[top].val == s[top + 1].val);
 						break;
 					case 9: // !=
 						top--;
-						s[top] = (s[top] != s[top + 1]);
+						s[top].val = (s[top].val != s[top + 1].val);
 						break;
 					case 10: // <
 						top--;
-						s[top] = (s[top] < s[top + 1]);
+						s[top].val = (s[top].val < s[top + 1].val);
 						break;
 					case 11: // <=
 						top--;
-						s[top] = (s[top] <= s[top + 1]);
+						s[top].val = (s[top].val <= s[top + 1].val);
 						break;
 					case 12: // >
 						top--;
-						s[top] = (s[top] > s[top + 1]);
+						s[top].val = (s[top].val > s[top + 1].val);
 						break;
 					case 13: // >=
 						top--;
-						s[top] = (s[top] >= s[top + 1]);
+						s[top].val = (s[top].val >= s[top + 1].val);
 						break;
-					case 14: // pop 出栈	
-						printf("pop: %d", s[top]);
+					case 14: // pop 出栈
+						printf("\nOUTPUT:");
+						switch (s[top].tp)
+						{
+							case var_int:
+								printf(" %d\n", s[top].val);
+								break;
+							case var_char:
+								if(s[top].val >= 32 && s[top].val <= 126)
+									printf(" %c\n", s[top].val);
+								else
+									yyerror("Not a character!");
+								break;
+							case var_int_array:
+								printf(" %d\n", s[top].val);
+								break;
+							case var_char_array:
+								if(s[top].val >= 32 && s[top].val <= 126)
+									printf(" %c\n", s[top].val);
+								else
+									yyerror("Not a character!");
+								break;
+						}		
 						top--;
 						break;
 					case 15: // 输出换行符
@@ -668,8 +750,8 @@ void interpret()
 						break;
 					case 16: // push 读入一个输入值并入栈
 						top++;
-						printf("input to push: ");
-						scanf("%d", &(s[top]));
+						printf("input : ");
+						scanf("%d\n", &(s[top].val));
 						break;
 				}
 				break;		
@@ -683,18 +765,6 @@ void interpret()
 
 
 
-}
-
-
-
-void print_error(int e)
-{
-	char s[200];
-	switch (e)
-	{
-		case 1: strcpy(s, "detail");
-	}
-		
 }
 
 int main(void)
@@ -723,7 +793,7 @@ int main(void)
 	}
   	else
 	{
-		printf("Error(0):%d errors in x0 program.\n", err_num);
+		printf("Error: %d errors in x0 program.\n", err_num);
 	}
 
 	return 0;

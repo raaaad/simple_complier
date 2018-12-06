@@ -1,9 +1,13 @@
 main
 {
-    /*test*/
     int i;
-    int j;
-    i = 8;
-    j = 9;
-    write j - i;
+    int a[10];
+    i = 0;
+    while(i <= 9)
+    {
+        a[i] = i;
+        write a[i];
+        i = i + 1;      
+    } 
+
 }

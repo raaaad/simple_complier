@@ -14,6 +14,7 @@ int yywrap(void);
 [ \t]	{;}
 [\n]	{line++;}
 [/][*].*[*][/]	{;} 
+
 "main"	{return MAINSYM;}
 "int"	{return INTSYM;}
 "char"	{return CHARSYM;}
@@ -22,11 +23,13 @@ int yywrap(void);
 "while"	{return WHILESYM;}
 "write"	{return WRITESYM;}
 "read"	{return READSYM;}
+
 [A-Za-z]([A-Za-z]|[0-9])*	{yylval.ident=(char *)malloc(strlen(yytext)+1);
                                  strcpy(yylval.ident,yytext);
                                  return ID;
 }
 [0-9]+	{yylval.number=atoi(yytext); return NUM;}
+['].[']	{yylval.single_char = yytext[1]; return CHAR;}
 "="		{return ASSIGN;}
 "<"		{return LSS;}
 ">"		{return GTR;}
@@ -45,6 +48,7 @@ int yywrap(void);
 "{"		{return LBRACE;}
 "}"		{return RBRACE;}
 ";"		{return	SEMICOLON;}
+","		{return COMMA;}
 .		{yyerror("Unknown character!");}
 
 %%
