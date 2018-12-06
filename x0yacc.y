@@ -15,6 +15,12 @@
 #define addr_max 2048		//地址上界
 #define code_max 200     	//最多的虚拟机代码数
 #define stack_max 500 		//运行时数据栈元素最多为500个
+ 
+#define YYDEBUG  1
+
+// #define DEBUG 1
+
+// int yydebug = YYDEBUG;
 
 // 符号表中的类型
 enum object {
@@ -83,6 +89,7 @@ void print_code();	//output code
 int base(int l, int* s, int b);//get base_address
 void interpret();	
 void print_table();	//output symbol table
+void print_data_stack(int top, int* s);
 
 void print_error(int e);
 
@@ -131,7 +138,8 @@ program: MAINSYM
 			code[$<number>2].a = p_code;	//把前面生成的跳转语句的跳转位置改成当前位置
 			table[$<number>4].addr = p_code;		//记录当前过程代码地址
 			table[$<number>4].arr_size = $<number>4 + 3;	//记录当前过程分配数据大小
-			gen(ini, 0, $<number>4 + 3);	//生成代码
+			gen(ini, 0, $<number>5 + 3);	//生成代码
+			//打印符号表
 			print_table();
 		}
 		statement_list RBRACE
@@ -439,6 +447,17 @@ int position(char *s)
 	return i;
 }
 
+// 初始化虚拟机
+void init()
+{
+	p_table = 0;	//符号表指针
+	p_code = 0;		//虚拟机指针
+	
+  	lev = 0;
+  	num = 0;
+  	
+	err_num = 0;	//错误数
+}
 
 
 // 生成虚拟机代码 
@@ -466,16 +485,17 @@ void print_table()
 {
 	printf("===Symbol Table===\n");
 	int i;//符号表编号
+	printf("     kind   name  val  address  size\n");
 	for (i = 1; i <= p_table; i++)
 	{
 		switch (table[i].kind)
 		{
 			case varible_int:
-				printf("%3d  int   %s  ", i, table[i].name);
-				printf("val=%d\n", table[i].val);
+				printf("%3d  int   %3s  ", i, table[i].name);
+				printf("%4d  %5d  %5d\n", table[i].val, table[i].addr,table[i].arr_size);
 				break;
 			case varible_char:
-				printf("%3d  char  %s  ", i, table[i].name);
+				printf("%3d  char  %3s  ", i, table[i].name);
 				printf("addr=%d  size=%d\n", table[i].addr, table[i].arr_size);
 				break;
 		}
@@ -483,17 +503,7 @@ void print_table()
 	printf("==================\n");
 }
 
-// 初始化虚拟机
-void init()
-{
-	p_table = 0;	//符号表指针
-	p_code = 0;		//虚拟机指针
-	
-  	lev = 0;
-  	num = 0;
-  	
-	err_num = 0;	//错误数
-}
+
 
 // 输出目标代码
 void print_code()
@@ -502,14 +512,25 @@ void print_code()
 	int cur = 0;	//current line number
 	char name[][5]=
 	{
-		{"lit"},{"opr"},{"lod"},{"sto"},{"cal"},{"int"},{"jmp"},{"jpc"},
+		{"lit"},{"opr"},{"lod"},{"sto"},{"cal"},{"ini"},{"jmp"},{"jpc"},
 	};
 	
 	//print
-	for (cur = 0; cur < code_max; cur++)
+	for (cur = 0; cur < p_code; cur++)
 		printf("%d %s %d %d\n", cur, name[code[cur].f], code[cur].l, code[cur].a);
 	
 	printf("==================\n");
+}
+
+void print_data_stack(int top, int* s)
+{
+	//print data stack
+	int t = top;
+	printf("\n===Data Stack===\n");
+	for(; t >= 0; t--)
+	{
+		printf("%d | %d\n",t,s[t]);
+	}
 }
 
 // 通过过程基址求上l层过程的基址
@@ -544,7 +565,11 @@ void interpret()
 	s[2] = 0; // DL
 	s[3] = 0; // RA
 
+
 	do {
+		#ifdef DEBUG
+			printf("----- After Code %d -----\n",p);
+		#endif
 	    i = code[p++];	// 读当前指令 更新p
 		switch (i.f)	// 解释过程
 		{
@@ -595,7 +620,7 @@ void interpret()
 						break;
 					case 3:	// 减法
 						top--;
-						s[top] = s[top] - s[top+1];
+						s[top] = s[top] - s[top+1];						
 						break;
 					case 4:	// 乘法
 						top--;
@@ -649,8 +674,14 @@ void interpret()
 				}
 				break;		
 		}
+		#ifdef DEBUG
+		print_table();
+		print_data_stack(top,s);
+		#endif
 	} while (p != 0);
 	printf("Execute over.\n");
+
+
 
 }
 
@@ -668,13 +699,14 @@ void print_error(int e)
 
 int main(void)
 {
-	printf("Input x0 file name:	");
-	scanf("%s", input);				// 输入文件名
-
+	//printf("Input x0 file name:	");
+	//scanf("%s", input);				// 输入文件名
+	strcpy(input, "test0.x0");
+	
 	//open input file
 	if ((fin = fopen(input, "r")) == NULL)
 	{
-		printf("Error(0): Can't open the input file!\n");
+		printf("Error(0): Can't open the file %s!\n", input);
 		exit(1);
 	}
 

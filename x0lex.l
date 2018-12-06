@@ -13,6 +13,7 @@ int yywrap(void);
 %%
 [ \t]	{;}
 [\n]	{line++;}
+[/][*].*[*][/]	{;} 
 "main"	{return MAINSYM;}
 "int"	{return INTSYM;}
 "char"	{return CHARSYM;}
