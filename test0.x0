@@ -1,13 +1,7 @@
 main
 {
-    int i;
-    int a[10];
-    i = 0;
-    while(i <= 9)
-    {
-        a[i] = i;
-        write a[i];
-        i = i + 1;      
-    } 
-
+    char a,b;
+    a = 1;
+    b = 'b';
+    write a+b;
 }

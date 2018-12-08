@@ -11,9 +11,10 @@ int yywrap(void);
 %}
 
 %%
-[ \t]	{;}
-[\n]	{line++;}
 [/][*].*[*][/]	{;} 
+[ \t]			{;}
+[\n]			{line++;}
+
 
 "main"	{return MAINSYM;}
 "int"	{return INTSYM;}

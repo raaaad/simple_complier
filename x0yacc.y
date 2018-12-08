@@ -39,7 +39,7 @@ struct table_struct
    	int val;            //数值
 	int addr;           //地址
 	int level;
-	int arr_size;       //数组大小
+	int size;       //数组大小
 };
 
 // 符号表声明
@@ -72,6 +72,7 @@ struct instruction code[code_max];
 
 int p_table;	// 符号表当前指针,[0, symtable_max-1]
 int p_code;		// 虚拟机代码指针,[0, code_max-1]
+int p_addr;		//记录当前数据栈已分配地址尾部
 
 //全局变量，用于暂存
 char id[id_max];
@@ -79,6 +80,7 @@ int num;
 int lev;		// 层次记录
 int size;		//如果是数组的话，存数组大小
 int dec_type;	//暂存声明标识符类型 1:int 2:char
+
 
 int err_num;	//记录出错数
 extern int line;//声明在x0lex.l中
@@ -145,9 +147,10 @@ program: MAINSYM
 		LBRACE declaration_list
 		{
 			code[$<number>2].a = p_code;	//把前面生成的跳转语句的跳转位置改成当前位置
-			table[$<number>4].addr = p_code;		//记录当前过程代码地址
-			table[$<number>4].arr_size = $<number>4 + 3;	//记录当前过程分配数据大小
+			table[$<number>5].addr = p_code;		//记录当前过程代码地址
+			table[$<number>5].size = $<number>5 + 3;	//记录当前过程分配数据大小
 			gen(ini, 0, $<number>5 + 3);	//生成代码
+			set_addr($<number>5);
 			//打印符号表
 			print_table();
 		}
@@ -157,10 +160,9 @@ program: MAINSYM
 		}
 		;
 
-declaration_list: declaration_stat declaration_list 
+declaration_list: declaration_list declaration_stat
 				{
 					$$ = $1 + $2;//total decl num
-					set_addr($$);
 				}
 			| 	
 				{
@@ -289,7 +291,7 @@ write_stat: WRITESYM expression SEMICOLON
 read_stat: READSYM var SEMICOLON
 			{
 				gen(opr, 0, 16);
-				gen(sto, lev - table[$2].level, table[$2].addr);
+				gen(sto, table[$2].level, table[$2].addr);
 				$$ = $2;
 			}
         	;
@@ -302,7 +304,7 @@ expression: var ASSIGN expression
 					yyerror("Symbol does not exist.");
 				else
 				{
-					gen(sto, lev - table[$1].level, table[$1].addr);
+					gen(sto, table[$1].level, table[$1].addr);
 				}
 			}
 		|	simple_expr
@@ -376,7 +378,7 @@ factor: var
 				if ($1 == 0)
 					yyerror("Symbol does not exist!");
 				else
-					gen(lod, lev - table[$1].level, table[$1].addr);
+					gen(lod, table[$1].level, table[$1].addr);
 			}
         | 	NUM
 			{
@@ -448,21 +450,24 @@ void enter(enum object k)
 	switch (k)
 	{
 		case var_int:	
-			table[p_table].level = lev;
+			table[p_table].level = 1;
 			table[p_table].val = num;
+			// table[p_table].addr = p_addr;
 			break;
 		case var_char:
-			table[p_table].level = lev;
+			table[p_table].level = 2;
 			table[p_table].val = num;
+			// table[p_table].addr = ++p_addr - 3;
 			break;
 		case var_int_array:
-			table[p_table].level = lev;
-			table[p_table].arr_size = size;
+			table[p_table].level = 3;
+			table[p_table].size = size;
+			// table[p_table].addr = p_addr + 3 + size;
 			break;
 		case var_char_array:
-			table[p_table].level = lev;
-			table[p_table].arr_size = size;
-
+			table[p_table].level = 4;
+			table[p_table].size = size;
+			// table[p_table].addr = p_addr + 3;
 	}
 }
 
@@ -470,9 +475,33 @@ void enter(enum object k)
 void set_addr(int n)
 {
 	//需要分配n个地址
-	int i;
-	for(i = 1; i <= n; i++)
-		table[p_table - i + 1].addr = n - i + 3;
+	int i = 1;
+	// int cur_table_item = p_table - i + 1;
+	int cur_table_item = p_table;
+	while(i <= n)
+	{
+		switch(table[cur_table_item].kind)
+		{
+			case var_int:
+				table[cur_table_item].addr = 3 + n - i;
+				i++;
+				break;
+			case var_char:
+				table[cur_table_item].addr = 3+ n - i ;
+				i++;
+				break;
+			case var_int_array:
+				table[cur_table_item].addr = 3 + n - i - table[cur_table_item].size +1;
+				i+=table[cur_table_item].size;
+				break;
+			case var_char_array:
+				table[cur_table_item].addr = 3 + n - i - table[cur_table_item].size +1;
+				i+=table[cur_table_item].size;
+				break;
+		}
+		cur_table_item--;
+	}
+		
 }
 
 // 查找标识符在符号表中的位置
@@ -491,6 +520,7 @@ void init()
 {
 	p_table = 0;	//符号表指针
 	p_code = 0;		//虚拟机指针
+	p_addr = 3;
 	
   	lev = 0;
   	num = 0;
@@ -531,19 +561,19 @@ void print_table()
 		{
 			case var_int:
 				printf("%3d  int  %8s", i, table[i].name);
-				printf("%8d%10d%9d\n", table[i].val, table[i].addr,table[i].arr_size);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr,table[i].size);
 				break;
 			case var_char:
 				printf("%3d  char  %7s", i, table[i].name);
-				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].size);
 				break;
 			case var_int_array:
 				printf("%3d  array_int  %2s", i, table[i].name);
-				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].size);
 				break;
 			case var_char_array:
 				printf("%3d  array_char  %s", i, table[i].name);
-				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].arr_size);
+				printf("%8d%10d%9d\n", table[i].val, table[i].addr, table[i].size);
 				break;
 		}
 	}
@@ -564,7 +594,7 @@ void print_code()
 	
 	//print
 	for (cur = 0; cur < p_code; cur++)
-		printf("%d %s %d %d\n", cur, name[code[cur].f], code[cur].l, code[cur].a);
+		printf("%3d %s %d %d\n", cur, name[code[cur].f], code[cur].l, code[cur].a);
 	
 	printf("==================\n");
 }
@@ -576,24 +606,24 @@ void print_data_stack(int top, struct stack* s)
 	printf("\n===Data Stack===\n");
 	for(; t >= 0; t--)
 	{
-		printf("%d | %d\n",t,s[t].val);
+		printf("%3d | %d\n",t,s[t].val);
 	}
 }
 
-// 通过过程基址求上l层过程的基址
-int base(int l, struct stack* s, int b)
-{
-	int b1;
-	b1 = b;
-	//level>0 不在当前层
-	while (l > 0)
-	{
-		b1 = s[b1].val;
-		l--;	//更新层数
-	}
-	//level=0 直接输出b 即b1
-	return b1;
-}
+// // 通过过程基址求上l层过程的基址
+// int base(int l, struct stack* s, int b)
+// {
+// 	int b1;
+// 	b1 = b;
+// 	//level>0 不在当前层
+// 	while (l > 0)
+// 	{
+// 		b1 = s[b1].val;
+// 		l--;	//更新层数
+// 	}
+// 	//level=0 直接输出b 即b1
+// 	return b1;
+// }
 
 // 解释程序
 void interpret()
@@ -603,6 +633,7 @@ void interpret()
 	int p = 0;				// 指令指针
 	int base_addr = 1;		// 指令基址
 	struct instruction i;	// 存放当前指令
+	int offset = 0;
 	
 	printf("Execute x0...\n");
 
@@ -633,21 +664,70 @@ void interpret()
 						s[top].val = i.a;
 						break;
 					case 3://array int
+						s[top].tp = var_int_array;
+						s[top].val = i.a;
 						break;
 					case 4://array char
+						s[top].tp = var_char_array;
+						s[top].val = i.a;
 						break;
 				}
 				break;
 			case lod:	// 取相对地址为a的内存的值到栈顶
 				top++;
-				s[top].val = s[base(i.l,s,base_addr) + i.a].val;
+				switch(i.l)
+				{
+					case 1://int
+						s[top].val = s[base_addr + i.a].val;
+						s[top].tp = var_int;
+						break;
+					case 2://char
+						s[top].val = s[base_addr + i.a].val;
+						s[top].tp = var_char;
+						break;
+					case 3://int array
+						top--;//栈顶下移，使数组元素的值赋值时能够覆盖位移值
+						offset = s[top].val;//记录数组位移
+						s[top].val = s[base_addr + i.a + offset].val;//覆盖位移值
+						s[top].tp = var_int_array;
+						break;
+					case 4://char array
+						top--;
+						offset = s[top].val;
+						s[top].val = s[base_addr + i.a + offset].val;
+						s[top].tp = var_char_array;
+						break;
+				}
 				break;
 			case sto:	// 栈顶的值存到相对地址为a处
-				s[base(i.l, s, base_addr) + i.a].val = s[top].val;
-				top--;	//存储后出栈
+				switch(i.l)
+				{
+					case 1://int
+						s[base_addr + i.a].val = s[top].val;
+						s[base_addr + i.a].tp = var_int;
+						top--;	//存储后出栈
+						break;
+					case 2://char
+						s[base_addr + i.a].val = s[top].val;
+						s[base_addr + i.a].tp = var_char;
+						top--;	//存储后出栈
+						break;
+					case 3://int array
+						offset = s[top-1].val;
+						s[base_addr + i.a + offset].val = s[top].val;
+						s[base_addr + i.a + offset].tp = var_int_array;
+						top-=2;	//存储后出栈
+						break;
+					case 4://char array
+						offset = s[top-1].val;
+						s[base_addr + i.a + offset].val = s[top].val;
+						s[base_addr + i.a + offset].tp = var_char_array;
+						top-=2;	//存储后出栈
+						break;
+				}
 				break;
 			case cal:	// 调用子过程 NOT USED
-				s[top + 1].val = base(i.l, s, base_addr);	/* 将父过程基地址入栈，即建立静态链 */
+				// s[top + 1].val = base(i.l, s, base_addr);	/* 将父过程基地址入栈，即建立静态链 */
 				s[top + 2].val = base_addr;	/* 将本过程基地址入栈，即建立动态链 */
 				s[top + 3].val = p;	/* 将当前指令指针入栈，即保存返回地址 */
 				base_addr = top + 1;	/* 改变基地址指针值为新过程的基地址 */
