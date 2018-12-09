@@ -12,6 +12,7 @@ int yywrap(void);
 
 %%
 [/][*].*[*][/]	{;} 
+[/][/].*[\n]	{;}
 [ \t]			{;}
 [\n]			{line++;}
 
@@ -24,6 +25,8 @@ int yywrap(void);
 "while"	{return WHILESYM;}
 "write"	{return WRITESYM;}
 "read"	{return READSYM;}
+"repeat" {return REPEATSYM;}
+"until"	{return UNTILSYM;}
 
 [A-Za-z]([A-Za-z]|[0-9])*	{yylval.ident=(char *)malloc(strlen(yytext)+1);
                                  strcpy(yylval.ident,yytext);
@@ -42,6 +45,9 @@ int yywrap(void);
 "-"		{return SUB;}
 "*"		{return MUL;}
 "/"		{return	DIV;}
+"%"		{return MOD;}
+"++"	{return SELFADD;}
+"--"	{return SELFSUB;}
 "("		{return	LPAREN;}
 ")"		{return	RPAREN;}
 "["		{return LSQBRK;}

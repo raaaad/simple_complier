@@ -18,7 +18,7 @@
  
 #define YYDEBUG  1
 
-#define DEBUG 1
+// #define DEBUG 1
 
 // int yydebug = YYDEBUG;
 
@@ -77,9 +77,9 @@ int p_addr;		//记录当前数据栈已分配地址尾部
 //全局变量，用于暂存
 char id[id_max];
 int num;
-int lev;		// 层次记录
+int temp_addr;		// 层次记录
 int size;		//如果是数组的话，存数组大小
-int dec_type;	//暂存声明标识符类型 1:int 2:char
+int temp_type;	//暂存声明标识符类型 1:int 2:char
 
 
 int err_num;	//记录出错数
@@ -89,7 +89,9 @@ char input[id_max];	//测试文件名
 FILE* fin;			//测试文件
 
 void enter(enum object k);
-int position(char *s);
+int get_addr_by_id(char *s);
+int get_addr_by_tableaddr(int table_num);
+int get_ident_type(int t);
 void set_addr(int n);
 void gen(enum fct x, int y, int z);
 
@@ -113,24 +115,26 @@ void print_data_stack(int top, struct stack* s);//output data stack
 }
 
 //终结符号
-%token MAINSYM INTSYM CHARSYM IFSYM ELSESYM WHILESYM WRITESYM READSYM
-%token ASSIGN LSS GTR LEQ GEQ EQL NEQ ADD SUB MUL DIV
+%token MAINSYM INTSYM CHARSYM IFSYM ELSESYM WHILESYM WRITESYM READSYM REPEATSYM UNTILSYM
+%token ASSIGN LSS GTR LEQ GEQ EQL NEQ ADD SUB MUL DIV SELFADD SELFSUB MOD
 %token LPAREN RPAREN LSQBRK RSQBRK LBRACE RBRACE SEMICOLON COMMA
+
 
 %token <ident> ID
 %token <number> NUM
 %token <single_char> CHAR
 
 //非终结符
+%type <number>SELFOPR
 %type <number> type var expression program
 %type <number> declaration_list statement_list //in program
 %type <number> id_list arr_id_list arr_id//in declaration list
-%type <number> declaration_stat statement compound_stat if_stat while_stat write_stat read_stat expression_stat//statements
-%type <number> simple_expr additive_expr term factor //in expression
+%type <number> declaration_stat statement compound_stat if_stat while_stat write_stat read_stat expression_stat repeat_stat//statements
+%type <number> simple_expr additive_expr term factor multiplier//in expression
 %type <number> get_table_addr get_code_addr //作为动作
 
 %start program
-%left ADD SUB 
+%left ADD SUB
 %left LSS GTR LEQ GEQ EQL NEQ
 %left MUL DIV 
 
@@ -148,7 +152,7 @@ program: MAINSYM
 		{
 			code[$<number>2].a = p_code;	//把前面生成的跳转语句的跳转位置改成当前位置
 			table[$<number>5].addr = p_code;		//记录当前过程代码地址
-			table[$<number>5].size = $<number>5 + 3;	//记录当前过程分配数据大小
+			// table[$<number>5].size = $<number>5 + 3;	//记录当前过程分配数据大小
 			gen(ini, 0, $<number>5 + 3);	//生成代码
 			set_addr($<number>5);
 			//打印符号表
@@ -183,18 +187,18 @@ declaration_stat: type id_list SEMICOLON
 id_list: ID
 			{
 				strcpy(id, $1); 
-				if (dec_type == 1)//type is int
+				if (temp_type == 1)//type is int
 					enter(var_int);//join symbol table
-				if (dec_type == 2)//type is char
+				if (temp_type == 2)//type is char
 					enter(var_char);
 				$<number>$ = 1;
 			}
 		| id_list COMMA ID
 			{
 				strcpy(id, $3); 
-				if (dec_type == 1)//type is int
+				if (temp_type == 1)//type is int
 					enter(var_int);//join symbol table
-				if (dec_type == 2)//type is char
+				if (temp_type == 2)//type is char
 					enter(var_char);
 				$<number>$ = 1 + $1;
 			}
@@ -214,9 +218,9 @@ arr_id: ID LSQBRK NUM RSQBRK
 		{
 			strcpy(id, $1);
 			size = $3;
-			if (dec_type == 1)
+			if (temp_type == 1)
 				enter(var_int_array);
-			if (dec_type == 2)
+			if (temp_type == 2)
 				enter(var_char_array);
 			$<number>$ = size;
 		}
@@ -225,6 +229,7 @@ arr_id: ID LSQBRK NUM RSQBRK
 
 statement: if_stat
           	|	while_stat
+			|	repeat_stat
           	| 	read_stat
           	| 	write_stat
           	| 	compound_stat
@@ -250,7 +255,7 @@ compound_stat: LBRACE statement_list RBRACE
           	;
 
 /* 条件语句 */
-if_stat: IFSYM LBRACE expression RBRACE get_code_addr
+if_stat: IFSYM LPAREN expression RPAREN get_code_addr
 		{
 			gen(jpc, 0, 0);//跳转到else语句
 		}
@@ -262,11 +267,11 @@ if_stat: IFSYM LBRACE expression RBRACE get_code_addr
 		}
 		ELSESYM statement
 		{
-			code[$<number>7].a = p_code;//修改jmp跳转地址，执行完if下语句直接跳到此处
+			code[$<number>8].a = p_code;//修改jmp跳转地址，执行完if下语句直接跳到此处
 		}
 		;
 
-/* 循环语句 */
+
 while_stat: WHILESYM LPAREN get_code_addr expression RPAREN get_code_addr
 		{
 			gen(jpc, 0 , 0);
@@ -278,7 +283,13 @@ while_stat: WHILESYM LPAREN get_code_addr expression RPAREN get_code_addr
 		}
 		;
 
-/* 写语句 */
+repeat_stat: REPEATSYM get_code_addr compound_stat
+			UNTILSYM LPAREN expression RPAREN
+				{
+					gen(jpc, 0 , $2);
+				}
+			;
+
 write_stat: WRITESYM expression SEMICOLON
 			{
 				gen(opr, 0, 14);
@@ -287,14 +298,15 @@ write_stat: WRITESYM expression SEMICOLON
 			}
           	;
 
-/* 读语句 */
 read_stat: READSYM var SEMICOLON
 			{
-				gen(opr, 0, 16);
+				temp_type = get_ident_type($2);
+				gen(opr, temp_type, 16);
 				gen(sto, table[$2].level, table[$2].addr);
 				$$ = $2;
 			}
         	;
+
 
 
 /* 表达式 */
@@ -304,10 +316,14 @@ expression: var ASSIGN expression
 					yyerror("Symbol does not exist.");
 				else
 				{
+					// $$ = $1;
 					gen(sto, table[$1].level, table[$1].addr);
 				}
 			}
 		|	simple_expr
+			{
+				$$ = $1;
+			}
 		;
 
 /* 分号或加分号的表达式 */
@@ -347,6 +363,10 @@ simple_expr: additive_expr
 			{
 				gen(opr, 0, 9);
 			}
+		|	additive_expr MOD additive_expr
+			{
+				gen(opr, 0, 7);
+			}
 		;
 
 /* 加减表达式 */
@@ -361,24 +381,61 @@ additive_expr: additive_expr ADD term
 		|	term
 			;
 /* 项 */
-term: term MUL factor
+term: term MUL multiplier
 		{
 			gen(opr, 0, 4);
 		}
-	| 	term DIV factor
+	| 	term DIV multiplier
 		{
 			gen(opr, 0, 5);
 		}
-	|	factor
+	|	multiplier
           ;
 
+multiplier: factor SELFOPR
+				{
+					temp_addr = table[$<number>1].addr;
+					gen(lod, 1, temp_addr);
+					gen(lit, 1, 1);
+					gen(opr, 1, $<number>2);
+					gen(sto, 1, temp_addr);
+					$$ = $1;//send id addr
+				}
+			| SELFOPR factor
+				{
+					temp_addr = table[$<number>2].addr;
+					gen(lit, 1, 1);
+					gen(opr, 1, $<number>1);
+					gen(sto, 1, temp_addr);
+					gen(lod, 1, temp_addr);
+					$$ = $2;//send id addr
+				}
+			| factor
+				{
+					$$ = $1;//send id addr
+				}
+			;
+
+SELFOPR: SELFADD
+			{
+				$$ = 2;//add
+			}
+		| SELFSUB
+			{
+				$$ = 3;//sub
+			}
+		;
 /* 因子 */
 factor: var
 			{
 				if ($1 == 0)
 					yyerror("Symbol does not exist!");
 				else
+				{
 					gen(lod, table[$1].level, table[$1].addr);
+					$$ = $1;//send id addr
+				}
+				
 			}
         | 	NUM
 			{
@@ -386,7 +443,7 @@ factor: var
 			}
 		|	CHAR
 			{
-				gen(lit,2, $1);
+				gen(lit, 2, $1);
 			}
         |	LPAREN expression RPAREN
 			{
@@ -396,23 +453,23 @@ factor: var
 
 type: INTSYM
 		{
-			dec_type = 1;
+			temp_type = 1;
 		}
 	|	CHARSYM
 		{
-			dec_type = 2;
+			temp_type = 2;
 		}
 	;
 
 /* 变量 */
 var: ID
 	{
-		$$ = position ($1);
+		$$ = get_addr_by_id($1);
 	}
 	|	ID LSQBRK expression RSQBRK
 		{
 			//数组
-			$$ = position($1);
+			$$ = get_addr_by_id($1);
 			//还应该有其他操作
 		}
 	;
@@ -427,8 +484,6 @@ get_code_addr:	{
 					$$ = p_code;
 				}
 				;
-
-
 
 ////////////////////////////////////////////////////////
 //程序部分
@@ -452,22 +507,20 @@ void enter(enum object k)
 		case var_int:	
 			table[p_table].level = 1;
 			table[p_table].val = num;
-			// table[p_table].addr = p_addr;
+			table[p_table].size = 0;
 			break;
 		case var_char:
 			table[p_table].level = 2;
 			table[p_table].val = num;
-			// table[p_table].addr = ++p_addr - 3;
+			table[p_table].size = 0;
 			break;
 		case var_int_array:
 			table[p_table].level = 3;
 			table[p_table].size = size;
-			// table[p_table].addr = p_addr + 3 + size;
 			break;
 		case var_char_array:
 			table[p_table].level = 4;
 			table[p_table].size = size;
-			// table[p_table].addr = p_addr + 3;
 	}
 }
 
@@ -503,9 +556,13 @@ void set_addr(int n)
 	}
 		
 }
+int get_addr_by_tableaddr(int table_num)
+{
+	return table[table_num].addr;
+}
 
 // 查找标识符在符号表中的位置
-int position(char *s)
+int get_addr_by_id(char *s)
 {
 	int i;
 	strcpy(table[0].name, s);//????
@@ -515,14 +572,31 @@ int position(char *s)
 	return i;
 }
 
+int get_ident_type(int t)
+{
+	//t: ident addr in symbol table
+	//return : ident type's number
+	switch(table[t].kind)
+	{
+		case var_int:
+			return 1;
+		case var_char:
+			return 2;
+		case var_int_array:
+			return 3;
+		case var_char_array:
+			return 4;
+	}
+	return 0;	
+}
+
 // 初始化虚拟机
 void init()
 {
 	p_table = 0;	//符号表指针
 	p_code = 0;		//虚拟机指针
 	p_addr = 3;
-	
-  	lev = 0;
+
   	num = 0;
   	
 	err_num = 0;	//错误数
@@ -634,7 +708,7 @@ void interpret()
 	int base_addr = 1;		// 指令基址
 	struct instruction i;	// 存放当前指令
 	int offset = 0;
-	
+
 	printf("Execute x0...\n");
 
 	//主程序栈底初始化
@@ -740,7 +814,7 @@ void interpret()
 				p = i.a;
 				break;
 			case jpc:	// 条件跳转
-				if (s[top].val == 0)//??
+				if (s[top].val == 0)
 					p = i.a;
 				top--;
 				break;
@@ -774,7 +848,9 @@ void interpret()
 					case 6: // 奇偶判断 NOT USED
 						s[top].val = s[top].val % 2;
 						break;
-					case 7: // NOT USED
+					case 7: 
+						top--;
+						s[top].val = s[top].val % s[top+1].val;
 						break;
 					case 8:	// ==
 						top--;
@@ -830,8 +906,26 @@ void interpret()
 						break;
 					case 16: // push 读入一个输入值并入栈
 						top++;
-						printf("input : ");
-						scanf("%d\n", &(s[top].val));
+						printf("INPUT : ");
+						switch(i.l)
+						{
+							case 1://int
+								scanf("%d\n", &(s[top].val));
+								s[top].tp = var_int;
+								break;
+							case 2://char
+								s[top].val = getchar();
+								s[top].tp = var_char;
+								break;
+							case 3:
+								scanf("%d\n", &(s[top].val));
+								s[top].tp = var_int;
+								break;
+							case 4:
+								s[top].val = getchar();
+								s[top].tp = var_char;
+								break;
+						}
 						break;
 				}
 				break;		
