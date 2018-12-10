@@ -1,0 +1,21 @@
+main
+{   
+	int w,t,n,m,z,p;                       
+	n = 2;
+    m = 5;
+	w = n * m;                    
+	while(m!=0)
+	{
+		if(n<m)
+        {
+            p=n;
+            n=m;
+            m=p;
+        }
+		t=n%m;
+		n=m;
+		m=t;
+	}
+	z=w/n;                                      
+	write z;
+}

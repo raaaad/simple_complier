@@ -12,13 +12,13 @@
 
 #define symtable_max 100	//符号表容量
 #define id_max 10			//标识符的最大长度
-#define addr_max 2048		//地址上界
+#define addr_max 10000		//地址上界
 #define code_max 200     	//最多的虚拟机代码数
-#define stack_max 500 		//运行时数据栈元素最多为500个
+#define stack_max 10000 		//运行时数据栈元素最多为500个
  
 #define YYDEBUG  1
 
-// #define DEBUG 1
+#define DEBUG 1
 
 // int yydebug = YYDEBUG;
 
@@ -115,8 +115,8 @@ void print_data_stack(int top, struct stack* s);//output data stack
 }
 
 //终结符号
-%token MAINSYM INTSYM CHARSYM IFSYM ELSESYM WHILESYM WRITESYM READSYM REPEATSYM UNTILSYM
-%token ASSIGN LSS GTR LEQ GEQ EQL NEQ ADD SUB MUL DIV SELFADD SELFSUB MOD
+%token MAINSYM INTSYM CHARSYM IFSYM ELSESYM WHILESYM WRITESYM READSYM REPEATSYM UNTILSYM DOSYM
+%token ASSIGN LSS GTR LEQ GEQ EQL NEQ ADD SUB MUL DIV SELFADD SELFSUB MOD ODDSYM XOR AND OR NOT
 %token LPAREN RPAREN LSQBRK RSQBRK LBRACE RBRACE SEMICOLON COMMA
 
 
@@ -129,14 +129,16 @@ void print_data_stack(int top, struct stack* s);//output data stack
 %type <number> type var expression program
 %type <number> declaration_list statement_list //in program
 %type <number> id_list arr_id_list arr_id//in declaration list
-%type <number> declaration_stat statement compound_stat if_stat while_stat write_stat read_stat expression_stat repeat_stat//statements
+%type <number> declaration_stat statement compound_stat if_stat while_stat write_stat read_stat expression_stat repeat_stat do_stat//statements
 %type <number> simple_expr additive_expr term factor multiplier//in expression
-%type <number> get_table_addr get_code_addr //作为动作
+%type <number> get_table_addr get_code_addr gen_jpc gen_jmp//作为动作
 
 %start program
 %left ADD SUB
 %left LSS GTR LEQ GEQ EQL NEQ
 %left MUL DIV 
+%nonassoc LOWER_THAN_ELSE
+%nonassoc ELSESYM
 
 ////////////////////////////////////////////////////////
 //规则部分
@@ -234,6 +236,7 @@ statement: if_stat
           	| 	write_stat
           	| 	compound_stat
           	| 	expression_stat
+			|	do_stat
 			;
 		
 /* 一条或多条语句 */
@@ -255,22 +258,27 @@ compound_stat: LBRACE statement_list RBRACE
           	;
 
 /* 条件语句 */
-if_stat: IFSYM LPAREN expression RPAREN get_code_addr
-		{
-			gen(jpc, 0, 0);//跳转到else语句
-		}
-		statement get_code_addr
-		{
-			gen(jmp, 0, 0);//跳转到整个if语句末尾
-			code[$5].a = p_code;//修改jpc跳转地址，用于执行else内语句
-			
-		}
-		ELSESYM statement
-		{
-			code[$<number>8].a = p_code;//修改jmp跳转地址，执行完if下语句直接跳到此处
-		}
+if_stat: IFSYM LPAREN expression RPAREN gen_jpc statement %prec LOWER_THAN_ELSE
+			{
+				code[$5].a = p_code;//修改jpc跳转地址，用于跳过if内语句的执行	
+			}
+		|	IFSYM LPAREN expression RPAREN gen_jpc statement ELSESYM gen_jmp statement
+			{
+				code[$5].a = $8 +1;
+				code[$8].a = p_code;//修改jmp跳转地址，执行完if下语句直接跳到此处
+			}
 		;
 
+gen_jpc: {
+			$$ = p_code;
+			gen(jpc,0,0);
+		}
+		;
+gen_jmp:{
+			$$ = p_code;
+			gen(jmp,0,0);
+		}
+		;			
 
 while_stat: WHILESYM LPAREN get_code_addr expression RPAREN get_code_addr
 		{
@@ -283,8 +291,13 @@ while_stat: WHILESYM LPAREN get_code_addr expression RPAREN get_code_addr
 		}
 		;
 
-repeat_stat: REPEATSYM get_code_addr compound_stat
-			UNTILSYM LPAREN expression RPAREN
+do_stat: DOSYM get_code_addr compound_stat WHILESYM LPAREN expression RPAREN
+			{
+				gen(jpc, 1, $2);
+			}
+		;
+
+repeat_stat: REPEATSYM get_code_addr compound_stat UNTILSYM LPAREN expression RPAREN
 				{
 					gen(jpc, 0 , $2);
 				}
@@ -363,9 +376,17 @@ simple_expr: additive_expr
 			{
 				gen(opr, 0, 9);
 			}
-		|	additive_expr MOD additive_expr
+		|	additive_expr XOR additive_expr
 			{
-				gen(opr, 0, 7);
+				gen(opr, 0, 17);
+			}
+		|	additive_expr AND additive_expr
+			{
+				gen(opr, 0, 18);
+			}
+		|	additive_expr OR additive_expr
+			{
+				gen(opr, 0, 19);
 			}
 		;
 
@@ -389,8 +410,12 @@ term: term MUL multiplier
 		{
 			gen(opr, 0, 5);
 		}
+	|	term MOD multiplier
+		{
+			gen(opr, 0, 7);
+		}
 	|	multiplier
-          ;
+    ;
 
 multiplier: factor SELFOPR
 				{
@@ -410,6 +435,16 @@ multiplier: factor SELFOPR
 					gen(lod, 1, temp_addr);
 					$$ = $2;//send id addr
 				}
+			| ODDSYM factor
+				{
+					temp_addr = table[$<number>2].addr;
+					gen(lod, 1, temp_addr);
+					gen(opr, 0, 6);
+				}
+			|	NOT factor
+			{
+				gen(opr, 0, 20);
+			}
 			| factor
 				{
 					$$ = $1;//send id addr
@@ -470,7 +505,8 @@ var: ID
 		{
 			//数组
 			$$ = get_addr_by_id($1);
-			//还应该有其他操作
+			if($3 >= table[$$].size)
+				yyerror("Illegal array adress.");
 		}
 	;
 
@@ -684,21 +720,6 @@ void print_data_stack(int top, struct stack* s)
 	}
 }
 
-// // 通过过程基址求上l层过程的基址
-// int base(int l, struct stack* s, int b)
-// {
-// 	int b1;
-// 	b1 = b;
-// 	//level>0 不在当前层
-// 	while (l > 0)
-// 	{
-// 		b1 = s[b1].val;
-// 		l--;	//更新层数
-// 	}
-// 	//level=0 直接输出b 即b1
-// 	return b1;
-// }
-
 // 解释程序
 void interpret()
 {
@@ -708,7 +729,7 @@ void interpret()
 	int base_addr = 1;		// 指令基址
 	struct instruction i;	// 存放当前指令
 	int offset = 0;
-
+	char c;
 	printf("Execute x0...\n");
 
 	//主程序栈底初始化
@@ -720,7 +741,12 @@ void interpret()
 
 	do {
 		#ifdef DEBUG
-			printf("----- After Code %d -----\n",p);
+			printf("----- Code %d -----\n",p);
+			char name[][5]=
+			{
+				{"lit"},{"opr"},{"lod"},{"sto"},{"cal"},{"ini"},{"jmp"},{"jpc"},
+			};
+			printf("%3d %s %d %d\n", p, name[code[p].f], code[p].l, code[p].a);
 		#endif
 	    i = code[p++];	// 读当前指令 更新p
 		switch (i.f)	// 解释过程
@@ -814,8 +840,17 @@ void interpret()
 				p = i.a;
 				break;
 			case jpc:	// 条件跳转
-				if (s[top].val == 0)
-					p = i.a;
+				switch(i.l)
+				{
+					case 0:
+						if (s[top].val == 0)
+							p = i.a;
+						break;
+					case 1:
+						if (s[top].val != 0)
+							p = i.a;
+						break;
+				}
 				top--;
 				break;
 			case opr:	// 数学or逻辑运算
@@ -845,8 +880,9 @@ void interpret()
 						top--;
 						s[top].val = s[top].val / s[top+1].val;
 						break;
-					case 6: // 奇偶判断 NOT USED
-						s[top].val = s[top].val % 2;
+					case 6: // 奇偶判断
+						top--;
+						s[top].val = s[top+1].val % 2;
 						break;
 					case 7: 
 						top--;
@@ -910,29 +946,48 @@ void interpret()
 						switch(i.l)
 						{
 							case 1://int
-								scanf("%d\n", &(s[top].val));
+								scanf("%d", &(s[top].val));
 								s[top].tp = var_int;
 								break;
 							case 2://char
 								s[top].val = getchar();
+								getchar();
 								s[top].tp = var_char;
 								break;
 							case 3:
-								scanf("%d\n", &(s[top].val));
+								scanf("%d", &(s[top].val));
 								s[top].tp = var_int;
 								break;
 							case 4:
 								s[top].val = getchar();
 								s[top].tp = var_char;
+								getchar();
 								break;
 						}
 						break;
+					case 17://xor
+						top--;
+						s[top].val = ((s[top].val)^(s[top + 1].val));
+						break;
+					case 18://and
+						top--;
+						s[top].val = ((s[top].val)&&(s[top + 1].val));
+						break;
+					case 19://or
+						top--;
+						s[top].val = ((s[top].val)||(s[top + 1].val));
+						break;
+					case 20: //not
+						s[top].val = !s[top].val;
+						break;
+
 				}
 				break;		
 		}
 		#ifdef DEBUG
 		print_table();
 		print_data_stack(top,s);
+		getchar();
 		#endif
 	} while (p != 0);
 	printf("Execute over.\n");
@@ -943,8 +998,8 @@ void interpret()
 
 int main(void)
 {
-	//printf("Input x0 file name:	");
-	//scanf("%s", input);				// 输入文件名
+	// printf("Input x0 file name:	");
+	// scanf("%s", input);				// 输入文件名
 	strcpy(input, "test0.x0");
 	
 	//open input file

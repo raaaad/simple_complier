@@ -2,7 +2,7 @@ main
 {
     int i,j;
     i = 2;
-    while(i <= 100)
+    while(i < 100)
     {
 
         j = 2;
@@ -10,5 +10,6 @@ main
             j++;
         if (j == i)
             write i;
+        i++;
     }
 }

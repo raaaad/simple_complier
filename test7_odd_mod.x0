@@ -1,0 +1,6 @@
+main{
+int a,b;
+read a;
+write ODD a;
+write a%2;
+}

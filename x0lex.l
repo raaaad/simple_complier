@@ -27,6 +27,9 @@ int yywrap(void);
 "read"	{return READSYM;}
 "repeat" {return REPEATSYM;}
 "until"	{return UNTILSYM;}
+"do"	{return DOSYM;}
+
+"ODD" {return ODDSYM;}
 
 [A-Za-z]([A-Za-z]|[0-9])*	{yylval.ident=(char *)malloc(strlen(yytext)+1);
                                  strcpy(yylval.ident,yytext);
@@ -41,6 +44,10 @@ int yywrap(void);
 ">="	{return GEQ;}
 "=="	{return	EQL;}
 "!="	{return NEQ;}
+"^"		{return XOR;}
+"&&"	{return AND;}
+"||"	{return OR;}
+"!"		{return NOT;}
 "+"		{return ADD;}
 "-"		{return SUB;}
 "*"		{return MUL;}
